@@ -1,0 +1,94 @@
+{
+  "api_providers": {
+    "openrouter": {
+      "enabled": true,
+      "api_key": "",
+      "model": "openrouter/auto",
+      "base_url": "https://openrouter.ai/api/v1"
+    },
+    "groq": {
+      "enabled": true,
+      "api_key": "",
+      "model": "llama-3.1-70b-versatile",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "cerebras": {
+      "enabled": true,
+      "api_key": "",
+      "model": "llama-3.1-70b",
+      "base_url": "https://api.cerebras.ai/v1"
+    },
+    "mistral": {
+      "enabled": true,
+      "api_key": "",
+      "model": "mistral-large-latest",
+      "base_url": "https://api.mistral.ai/v1"
+    },
+    "gemini": {
+      "enabled": true,
+      "api_key": "",
+      "model": "gemini-1.5-pro"
+    }
+  },
+  "cli_providers": {
+    "gemini_cli": {
+      "enabled": false,
+      "command": "gemini",
+      "description": "Gemini CLI with Google One AI Pro"
+    },
+    "codex_cli": {
+      "enabled": false,
+      "command": "codex",
+      "description": "Codex CLI with ChatGPT free"
+    },
+    "qwen_cli": {
+      "enabled": false,
+      "command": "qwen",
+      "description": "Qwen CLI (free tier)"
+    },
+    "kilo_cli": {
+      "enabled": false,
+      "command": "kilo",
+      "description": "Kilo CLI (free tier)"
+    }
+  },
+  "council_settings": {
+    "default_agents": ["architect", "critic", "optimizer"],
+    "max_debate_rounds": 2,
+    "timeout_seconds": 60,
+    "parallel_requests": true,
+    "show_thinking": false
+  },
+  "agent_roles": {
+    "architect": {
+      "provider": "groq",
+      "system_prompt": "You are a Software Architect. Focus on system design, architecture patterns, scalability, and best practices. Provide structured, well-thought-out solutions.",
+      "temperature": 0.7
+    },
+    "critic": {
+      "provider": "mistral",
+      "system_prompt": "You are a Code Critic. Review solutions critically, identify potential issues, edge cases, security concerns, and areas for improvement. Be constructive but thorough.",
+      "temperature": 0.5
+    },
+    "optimizer": {
+      "provider": "gemini",
+      "system_prompt": "You are a Performance Optimizer. Focus on efficiency, performance improvements, resource optimization, and practical enhancements to solutions.",
+      "temperature": 0.6
+    },
+    "researcher": {
+      "provider": "cerebras",
+      "system_prompt": "You are a Technical Researcher. Provide deep technical insights, reference best practices, compare alternatives with evidence, and explain trade-offs thoroughly.",
+      "temperature": 0.7
+    },
+    "generalist": {
+      "provider": "openrouter",
+      "system_prompt": "You are a Generalist AI. Provide balanced, practical advice considering multiple perspectives. Focus on what works best in real-world scenarios.",
+      "temperature": 0.8
+    },
+    "moderator": {
+      "provider": "openrouter",
+      "system_prompt": "You are the Council Moderator. Synthesize all opinions, find consensus, highlight key disagreements, and provide a final recommendation with reasoning.",
+      "temperature": 0.5
+    }
+  }
+}
