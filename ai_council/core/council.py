@@ -101,9 +101,11 @@ class CouncilCoordinator:
             self.providers["kilo_cli"] = KiloCLIProvider(cli_configs["kilo_cli"])
     
     def _initialize_agents(self):
-        """Initialize agents based on configuration"""
+        """Initialize agents based on configuration with real-time context"""
         agent_roles = self.config.get_agent_roles()
         tool_prompt = self.tools.get_tool_prompt()
+        from datetime import datetime
+        current_date = datetime.now().strftime("%B %d, %Y")
         
         for role_name, role_config in agent_roles.items():
             provider_name = role_config.get("provider", "openrouter")
@@ -111,7 +113,9 @@ class CouncilCoordinator:
             if provider_name not in self.providers:
                 continue
             
-            system_prompt = role_config.get("system_prompt", "")
+            # Base prompt with mandatory real-time context
+            system_prompt = f"CURRENT DATE: {current_date}\n"
+            system_prompt += role_config.get("system_prompt", "")
             
             # Inject tool instructions for relevant roles
             if role_name in ["architect", "coder", "researcher", "reviewer"]:
@@ -201,15 +205,19 @@ class CouncilCoordinator:
         query: str,
         rounds: int = 2,
         agent_names: Optional[List[str]] = None,
+        profile: Optional[str] = None,
     ) -> CouncilSession:
-        """Run a multi-round debate between agents"""
+        """Run a multi-round debate between agents with profile support"""
         
         session_id = str(uuid.uuid4())[:8]
         
-        if agent_names is None:
-            agent_names = self.config.get_council_settings().get(
-                "default_agents", ["architect", "critic", "optimizer"]
-            )
+        # Resolve agent names from profile or default
+        if not agent_names:
+            settings = self.config.get_council_settings()
+            if profile and "profiles" in settings and profile in settings["profiles"]:
+                agent_names = settings["profiles"][profile]
+            else:
+                agent_names = settings.get("default_agents", ["architect", "critic", "optimizer"])
         
         agents_to_use = [
             self.agents[name] for name in agent_names if name in self.agents
@@ -221,21 +229,18 @@ class CouncilCoordinator:
         for round_num in range(rounds):
             session.rounds = round_num + 1
             
-            # 1. Process any tool calls from previous round (if applicable)
-            # (Simplification: In this version, we handle them as part of context injection)
-            
-            # 2. Query all agents
+            # Query all agents
             responses = await self.query_agents(
                 query=query,
                 agent_names=agent_names,
                 context=context if round_num > 0 else None,
             )
             
-            # 3. Collect responses and check for tool usage
+            # Collect responses and check for tool usage
             round_responses = {}
             for resp in responses:
                 if resp.success:
-                    # Check if agent wants to read a file
+                    # Check if agent wants to use tools
                     tool_output = self._handle_tool_calls(resp.content)
                     content_with_tools = resp.content
                     if tool_output:
@@ -252,7 +257,7 @@ class CouncilCoordinator:
                         "tokens": self.optimizer.count_tokens(content_with_tools)
                     })
             
-            # 4. Build optimized context for next round
+            # Build optimized context for next round
             if round_num < rounds - 1:
                 context = self._build_debate_context(round_responses, round_num + 1)
         
@@ -260,6 +265,14 @@ class CouncilCoordinator:
         synthesis = await self._synthesize(session)
         session.final_synthesis = synthesis
         
+        # Calculate total cost
+        total_cost = 0
+        for resp in session.all_responses:
+            tokens = resp.get('tokens', 0)
+            # Estimate prompt tokens as roughly 1.5x of the query + context
+            prompt_est = self.optimizer.count_tokens(query) + 500 
+            total_cost += self.optimizer.estimate_cost(resp.get('model', ''), prompt_est, tokens)
+
         # Save to persistent storage
         try:
             self.storage.save_session(
@@ -268,7 +281,8 @@ class CouncilCoordinator:
                 rounds=session.rounds,
                 agents=[a.name for a in session.agents],
                 all_responses=session.all_responses,
-                final_synthesis=session.final_synthesis
+                final_synthesis=session.final_synthesis,
+                total_cost=total_cost
             )
         except Exception:
             pass
@@ -289,6 +303,16 @@ class CouncilCoordinator:
         for path in list_matches:
             files = self.tools.list_files(path.strip())
             outputs.append(f"--- Files in {path} ---\n" + "\n".join(files))
+
+        # Match [SEARCH: query]
+        search_matches = re.findall(r"\[SEARCH:\s*(.*?)\]", content)
+        for query in search_matches:
+            outputs.append(f"--- Web Search Results ---\n{self.tools.web_search(query.strip())}")
+
+        # Match [EXECUTE: code]
+        execute_matches = re.findall(r"\[EXECUTE:\s*(.*?)\]", content, re.DOTALL)
+        for code in execute_matches:
+            outputs.append(f"--- Code Execution Output ---\n{self.tools.execute_python(code.strip())}")
             
         return "\n\n".join(outputs) if outputs else ""
 
@@ -297,13 +321,18 @@ class CouncilCoordinator:
         responses: Dict[str, str],
         round_num: int,
     ) -> str:
-        """Build optimized context from previous round responses"""
-        context = f"Previous responses from Round {round_num}:\n\n"
+        """Build optimized context from previous round responses with interactive debate instructions"""
+        context = f"DEBATE ROUND {round_num + 1} - INTERACTIVE PROTOCOL:\n"
+        context += "Here are the initial perspectives from other specialized agents in the council.\n"
+        context += "YOUR TASK: \n"
+        context += "1. Analyze the responses below through your specific role's lens.\n"
+        context += "2. Identify any logical flaws, hallucinations, or missing pieces in their arguments.\n"
+        context += "3. Support or challenge their claims with evidence.\n"
+        context += "4. Refine your own stance based on this collective intelligence.\n\n"
         
         # Use optimizer to ensure we don't blow the context window
         context += self.optimizer.optimize_context(responses, max_tokens_per_agent=1000)
         
-        context += "\n\nPlease review these responses and provide your perspective."
         return context
     
     async def _synthesize(self, session: CouncilSession) -> str:

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Council Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>🤖 AI Council</h1>
+                <p>Session History</p>
+            </div>
+            <div id="session-list" class="session-list">
+                <!-- Sessions will be loaded here -->
+                <div class="loading">Loading history...</div>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="main-header">
+                <div id="active-session-info">
+                    <h2>Select a session to view details</h2>
+                </div>
+            </header>
+            
+            <section id="synthesis-panel" class="synthesis-panel hidden">
+                <h3>🎯 Final Synthesis</h3>
+                <div id="synthesis-content" class="markdown-body"></div>
+            </section>
+            
+            <section id="responses-container" class="responses-container">
+                <!-- Responses will be loaded here -->
+            </section>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

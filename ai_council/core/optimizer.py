@@ -22,6 +22,29 @@ class TokenOptimizer:
             return 0
         return len(self.encoding.encode(text))
     
+    def estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """Estimate cost in USD based on common provider pricing"""
+        # Pricing per 1M tokens (Approximate values for 2026)
+        pricing = {
+            "llama-3.3-70b": {"prompt": 0.60, "completion": 0.90},
+            "gemini-2.5-flash": {"prompt": 0.10, "completion": 0.30},
+            "gemini-2.5-pro": {"prompt": 1.25, "completion": 3.75},
+            "nemotron-3-super": {"prompt": 0.0, "completion": 0.0}, # Free models
+            "llama3.1-8b": {"prompt": 0.05, "completion": 0.10},
+            "qwen": {"prompt": 0.0, "completion": 0.0}, # CLI is free
+            "codex": {"prompt": 0.0, "completion": 0.0},
+        }
+        
+        # Find matching model
+        rate = {"prompt": 0.1, "completion": 0.2} # Default cheap rate
+        for key, p in pricing.items():
+            if key in model.lower():
+                rate = p
+                break
+                
+        cost = (prompt_tokens / 1_000_000 * rate["prompt"]) + (completion_tokens / 1_000_000 * rate["completion"])
+        return cost
+    
     def truncate_to_limit(self, text: str, max_tokens: int) -> str:
         """Truncate text to stay within token limit"""
         tokens = self.encoding.encode(text)

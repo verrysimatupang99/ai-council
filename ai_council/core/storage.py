@@ -36,7 +36,8 @@ class StorageManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     final_synthesis TEXT,
                     rounds INTEGER,
-                    agents_json TEXT
+                    agents_json TEXT,
+                    total_cost REAL DEFAULT 0
                 )
             ''')
             
@@ -55,19 +56,26 @@ class StorageManager:
                 )
             ''')
             
+            # Migration: Add total_cost to sessions if it doesn't exist
+            cursor.execute("PRAGMA table_info(sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'total_cost' not in columns:
+                cursor.execute('ALTER TABLE sessions ADD COLUMN total_cost REAL DEFAULT 0')
+            
             conn.commit()
     
     def save_session(self, session_id: str, query: str, rounds: int, agents: List[str], 
-                     all_responses: List[Dict[str, Any]], final_synthesis: Optional[str] = None):
+                     all_responses: List[Dict[str, Any]], final_synthesis: Optional[str] = None,
+                     total_cost: float = 0):
         """Save a complete session to the database"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
             # Insert session
             cursor.execute('''
-                INSERT INTO sessions (id, query, rounds, agents_json, final_synthesis)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (session_id, query, rounds, json.dumps(agents), final_synthesis))
+                INSERT INTO sessions (id, query, rounds, agents_json, final_synthesis, total_cost)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (session_id, query, rounds, json.dumps(agents), final_synthesis, total_cost))
             
             # Insert individual responses
             for resp in all_responses:

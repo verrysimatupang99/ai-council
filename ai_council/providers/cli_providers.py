@@ -23,7 +23,47 @@ class BaseCLIProvider(BaseProvider):
         prompt: str,
         timeout: int = 60,
     ) -> tuple[str, int]:
-        """Run CLI command and get output"""
+        """
+        Run CLI command using 4-Tier Invocation Strategy.
+        Optimized for automation based on community benchmarks.
+        """
+        # Define tool-specific patterns (Tier 1)
+        tool_patterns = {
+            'kilo_cli': [['kilo', 'run', prompt]],
+            'qwen_cli': [['qwen', '-p', prompt], ['qwen', prompt]],
+            'gemini_cli': [['gemini', '-p', prompt], ['gemini', prompt]],
+            'codex_cli': [['codex', 'exec', prompt], ['codex', prompt]],
+        }
+
+        # Strategy 1 & 2: Try specific patterns or direct arguments
+        commands_to_try = tool_patterns.get(self.name, [[self.command, prompt]])
+        
+        for cmd_args in commands_to_try:
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd_args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+                
+                if process.returncode == 0 and stdout:
+                    return stdout.decode(), 0
+            except Exception:
+                if process:
+                    try:
+                        process.kill()
+                        await process.wait() # Properly wait for cleanup
+                    except: pass
+                continue
+
+        # Tier 3: Fallback to stdin pipe
+        process = None
         try:
             process = await asyncio.create_subprocess_exec(
                 self.command,
@@ -37,15 +77,34 @@ class BaseCLIProvider(BaseProvider):
                 timeout=timeout,
             )
             
-            return stdout.decode(), process.returncode or 0
-        
-        except asyncio.TimeoutError:
-            process.kill()
-            return "", -1
-        except FileNotFoundError:
-            return "", -2
-        except Exception as e:
-            return str(e), -3
+            if process.returncode == 0:
+                return stdout.decode(), 0
+        except Exception:
+            if process:
+                try:
+                    process.kill()
+                    await process.wait() # Properly wait for cleanup
+                except: pass
+
+        # Tier 4: File-based input (Last resort for very long prompts)
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.txt', delete=True) as tf:
+                tf.write(prompt)
+                tf.flush()
+                process = await asyncio.create_subprocess_exec(
+                    self.command,
+                    tf.name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                if process.returncode == 0:
+                    return stdout.decode(), 0
+        except:
+            pass
+
+        return "", -3 # All tiers failed
 
 
 class GeminiCLIProvider(BaseCLIProvider):

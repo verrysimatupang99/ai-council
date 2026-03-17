@@ -7,9 +7,14 @@ A multi-agent AI system for collaborative problem solving.
 
 import asyncio
 import sys
+import warnings
 from pathlib import Path
 
 import click
+
+# Silence annoying background warnings during subprocess/async operations
+warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -35,7 +40,11 @@ def cli():
 @click.option(
     "--agents", "-a",
     multiple=True,
-    help="Specific agents to use (default: architect, critic, optimizer)",
+    help="Specific agents to use",
+)
+@click.option(
+    "--profile", "-p",
+    help="Preset profile (code, security, research, strategy, full)",
 )
 @click.option(
     "--debate", "-d",
@@ -58,7 +67,7 @@ def cli():
     default=None,
     help="Path to config file (default: config.json)",
 )
-def ask(query, agents, debate, rounds, simple, config):
+def ask(query, agents, profile, debate, rounds, simple, config):
     """Ask the AI council a question."""
     
     # Load configuration
@@ -93,57 +102,50 @@ def ask(query, agents, debate, rounds, simple, config):
     
     # Run the council
     if simple:
-        run_simple_mode(coordinator, query, agent_list, debate, rounds)
+        run_simple_mode(coordinator, query, agent_list, profile, debate, rounds)
     else:
-        run_tui_mode(coordinator, query, agent_list, debate, rounds)
+        run_tui_mode(coordinator, query, agent_list, profile, debate, rounds)
 
 
-def run_simple_mode(coordinator, query, agents, debate, rounds):
+def run_simple_mode(coordinator, query, agents, profile, debate, rounds):
     """Run in simple text mode"""
     console = CouncilTUI()
     console.show_welcome()
     
-    # Show available agents
-    agent_list = list(coordinator.agents.values())
-    console.show_agents(agent_list)
-    
-    # Print query
-    console.print_query(query)
-    
-    if debate or True: # Always use run_debate to ensure storage works
-        # Run session (even if 1 round)
-        if debate:
-            click.echo(click.style("\n🎭 Starting debate mode...\n", fg="yellow"))
-        else:
-            click.echo(click.style("\n🤖 Querying agents...\n", fg="green"))
-            
-        session = asyncio.run(coordinator.run_debate(query, rounds=rounds if debate else 1, agent_names=agents))
+    # Run session
+    if debate:
+        click.echo(click.style("\n🎭 Starting debate mode...\n", fg="yellow"))
+    else:
+        click.echo(click.style("\n🤖 Querying agents...\n", fg="green"))
         
-        # Print all responses
-        for resp in session.all_responses:
-            console.print_response(
-                type('obj', (object,), {
-                    'provider_name': resp['agent'],
-                    'model': resp.get('model', 'auto'),
-                    'content': resp['content'],
-                    'success': True,
-                    'error': None,
-                })()
-            )
-        
-        # Print synthesis
-        if session.final_synthesis:
-            console.print_synthesis(session.final_synthesis)
+    session = asyncio.run(coordinator.run_debate(
+        query, 
+        rounds=rounds if debate else 1, 
+        agent_names=agents,
+        profile=profile
+    ))
+    
+    # Print all responses
+    for resp in session.all_responses:
+        console.print_response(
+            type('obj', (object,), {
+                'provider_name': resp['agent'],
+                'model': resp.get('model', 'auto'),
+                'content': resp['content'],
+                'success': True,
+                'error': None,
+            })()
+        )
+    
+    # Print synthesis
+    if session.final_synthesis:
+        console.print_synthesis(session.final_synthesis)
 
 
-def run_tui_mode(coordinator, query, agents, debate, rounds):
+def run_tui_mode(coordinator, query, agents, profile, debate, rounds):
     """Run with Rich TUI"""
     console = CouncilTUI()
     console.show_welcome()
-    
-    # Show available agents
-    agent_list = list(coordinator.agents.values())
-    console.show_agents(agent_list)
     
     # Run session (even if 1 round to trigger storage)
     if debate:
@@ -154,7 +156,8 @@ def run_tui_mode(coordinator, query, agents, debate, rounds):
     session = asyncio.run(coordinator.run_debate(
         query=query, 
         rounds=rounds if debate else 1, 
-        agent_names=agents
+        agent_names=agents,
+        profile=profile
     ))
     
     # Show live updating results
@@ -321,13 +324,15 @@ def history(limit):
     table.add_column("Date", style="green")
     table.add_column("Query", style="white", overflow="fold")
     table.add_column("Rounds", style="magenta")
+    table.add_column("Cost (USD)", style="yellow")
     
     for s in sessions:
         table.add_row(
             s["id"],
             s["timestamp"],
             s["query"][:50] + "..." if len(s["query"]) > 50 else s["query"],
-            str(s["rounds"])
+            str(s["rounds"]),
+            f"${s.get('total_cost', 0):.4f}"
         )
     
     Console().print(table)
@@ -356,7 +361,10 @@ def view(session_id):
     
     console = Console()
     
-    console.print(Panel(f"[bold]Query:[/] {session['query']}", title=f"Session {session_id}"))
+    console.print(Panel(
+        f"[bold]Query:[/] {session['query']}\n[bold]Total Cost:[/] ${session.get('total_cost', 0):.4f}", 
+        title=f"Session {session_id}"
+    ))
     
     if session["final_synthesis"]:
         console.print(Panel(Markdown(session["final_synthesis"]), title="Final Synthesis", border_style="green"))
@@ -433,6 +441,33 @@ def export(session_id, output):
         f.write(md)
     
     click.echo(click.style(f"\n✅ Session {session_id} exported to: {output}\n", fg="green", bold=True))
+
+
+@cli.command()
+@click.option("--port", "-p", default=8000, help="Port to run the dashboard on")
+@click.option("--no-browser", is_flag=True, help="Don't open browser automatically")
+def dashboard(port, no_browser):
+    """Launch the Web Dashboard to visualize session history"""
+    import uvicorn
+    import webbrowser
+    import threading
+    import time
+    
+    click.echo(click.style(f"\n🚀 Launching AI Council Dashboard on http://localhost:{port}\n", fg="cyan", bold=True))
+    
+    def open_browser():
+        time.sleep(1.5) # Wait for server to start
+        if not no_browser:
+            webbrowser.open(f"http://localhost:{port}")
+            
+    # Start browser in a separate thread
+    threading.Thread(target=open_browser, daemon=True).start()
+    
+    # Run server
+    try:
+        uvicorn.run("ai_council.ui.dashboard.app:app", host="127.0.0.1", port=port, log_level="error")
+    except KeyboardInterrupt:
+        click.echo("\n👋 Dashboard stopped.")
 
 
 if __name__ == "__main__":
