@@ -3,11 +3,16 @@ Council Coordinator - Manages AI agents and coordinates discussions
 """
 
 import asyncio
+import uuid
+import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from ..providers.base import BaseProvider, Message, ProviderResponse
 from ..core.config import Config
+from ..core.storage import StorageManager
+from ..core.optimizer import TokenOptimizer
+from ..core.tools import ToolManager
 
 
 @dataclass
@@ -32,10 +37,11 @@ class Agent:
 @dataclass
 class CouncilSession:
     """Represents a council discussion session"""
+    id: str
     query: str
     agents: List[Agent]
     rounds: int = 0
-    all_responses: List[Dict[str, str]] = field(default_factory=list)
+    all_responses: List[Dict[str, Any]] = field(default_factory=list)
     final_synthesis: Optional[str] = None
 
 
@@ -46,6 +52,9 @@ class CouncilCoordinator:
         self.config = config
         self.providers: Dict[str, BaseProvider] = {}
         self.agents: Dict[str, Agent] = {}
+        self.storage = StorageManager()
+        self.optimizer = TokenOptimizer()
+        self.tools = ToolManager()
         self._initialize_providers()
         self._initialize_agents()
     
@@ -94,6 +103,7 @@ class CouncilCoordinator:
     def _initialize_agents(self):
         """Initialize agents based on configuration"""
         agent_roles = self.config.get_agent_roles()
+        tool_prompt = self.tools.get_tool_prompt()
         
         for role_name, role_config in agent_roles.items():
             provider_name = role_config.get("provider", "openrouter")
@@ -101,11 +111,17 @@ class CouncilCoordinator:
             if provider_name not in self.providers:
                 continue
             
+            system_prompt = role_config.get("system_prompt", "")
+            
+            # Inject tool instructions for relevant roles
+            if role_name in ["architect", "coder", "researcher", "reviewer"]:
+                system_prompt += "\n\n" + tool_prompt
+                
             agent = Agent(
                 name=role_name,
                 role=role_name.capitalize(),
                 provider=self.providers[provider_name],
-                system_prompt=role_config.get("system_prompt", ""),
+                system_prompt=system_prompt,
                 temperature=role_config.get("temperature", 0.7),
             )
             self.agents[role_name] = agent
@@ -188,6 +204,8 @@ class CouncilCoordinator:
     ) -> CouncilSession:
         """Run a multi-round debate between agents"""
         
+        session_id = str(uuid.uuid4())[:8]
+        
         if agent_names is None:
             agent_names = self.config.get_council_settings().get(
                 "default_agents", ["architect", "critic", "optimizer"]
@@ -197,31 +215,44 @@ class CouncilCoordinator:
             self.agents[name] for name in agent_names if name in self.agents
         ]
         
-        session = CouncilSession(query=query, agents=agents_to_use)
+        session = CouncilSession(id=session_id, query=query, agents=agents_to_use)
         context = query
         
         for round_num in range(rounds):
             session.rounds = round_num + 1
             
-            # Query all agents
+            # 1. Process any tool calls from previous round (if applicable)
+            # (Simplification: In this version, we handle them as part of context injection)
+            
+            # 2. Query all agents
             responses = await self.query_agents(
                 query=query,
                 agent_names=agent_names,
                 context=context if round_num > 0 else None,
             )
             
-            # Collect responses
+            # 3. Collect responses and check for tool usage
             round_responses = {}
             for resp in responses:
                 if resp.success:
-                    round_responses[resp.provider_name] = resp.content
+                    # Check if agent wants to read a file
+                    tool_output = self._handle_tool_calls(resp.content)
+                    content_with_tools = resp.content
+                    if tool_output:
+                        content_with_tools += f"\n\n[SYSTEM: Tool Output]\n{tool_output}"
+                    
+                    round_responses[resp.provider_name] = content_with_tools
                     session.all_responses.append({
                         "round": round_num + 1,
                         "agent": resp.provider_name,
-                        "content": resp.content,
+                        "content": content_with_tools,
+                        "provider": resp.provider_name,
+                        "model": resp.model,
+                        "latency_ms": resp.latency_ms,
+                        "tokens": self.optimizer.count_tokens(content_with_tools)
                     })
             
-            # Build context for next round (agents see each other's responses)
+            # 4. Build optimized context for next round
             if round_num < rounds - 1:
                 context = self._build_debate_context(round_responses, round_num + 1)
         
@@ -229,19 +260,50 @@ class CouncilCoordinator:
         synthesis = await self._synthesize(session)
         session.final_synthesis = synthesis
         
+        # Save to persistent storage
+        try:
+            self.storage.save_session(
+                session_id=session.id,
+                query=session.query,
+                rounds=session.rounds,
+                agents=[a.name for a in session.agents],
+                all_responses=session.all_responses,
+                final_synthesis=session.final_synthesis
+            )
+        except Exception:
+            pass
+            
         return session
     
+    def _handle_tool_calls(self, content: str) -> str:
+        """Parse response for tool calls and execute them"""
+        outputs = []
+        
+        # Match [READ_FILE: path]
+        read_matches = re.findall(r"\[READ_FILE:\s*(.*?)\]", content)
+        for path in read_matches:
+            outputs.append(f"--- Content of {path} ---\n{self.tools.read_file(path.strip())}")
+            
+        # Match [LIST_FILES: path]
+        list_matches = re.findall(r"\[LIST_FILES:\s*(.*?)\]", content)
+        for path in list_matches:
+            files = self.tools.list_files(path.strip())
+            outputs.append(f"--- Files in {path} ---\n" + "\n".join(files))
+            
+        return "\n\n".join(outputs) if outputs else ""
+
     def _build_debate_context(
         self,
         responses: Dict[str, str],
         round_num: int,
     ) -> str:
-        """Build context from previous round responses"""
+        """Build optimized context from previous round responses"""
         context = f"Previous responses from Round {round_num}:\n\n"
-        for agent, response in responses.items():
-            # Increase limit to 2000 characters to provide more context
-            context += f"{agent}: {response[:2000]}\n\n"
-        context += "Please review these responses and provide your perspective."
+        
+        # Use optimizer to ensure we don't blow the context window
+        context += self.optimizer.optimize_context(responses, max_tokens_per_agent=1000)
+        
+        context += "\n\nPlease review these responses and provide your perspective."
         return context
     
     async def _synthesize(self, session: CouncilSession) -> str:
@@ -249,7 +311,6 @@ class CouncilCoordinator:
         
         moderator = self.agents.get("moderator")
         if not moderator:
-            # If no moderator, use first available agent
             if session.agents:
                 moderator = session.agents[0]
             else:
@@ -264,7 +325,7 @@ class CouncilCoordinator:
             messages=messages,
             system_prompt=moderator.system_prompt,
             temperature=0.5,
-            max_tokens=4000, # Increased max tokens for synthesis
+            max_tokens=4000,
         )
         
         if response.success:
@@ -273,24 +334,24 @@ class CouncilCoordinator:
         return self._simple_synthesis(session)
     
     def _build_synthesis_prompt(self, session: CouncilSession) -> str:
-        """Build prompt for synthesis"""
+        """Build prompt for synthesis with token awareness"""
         prompt = "Based on the following discussion, provide a final recommendation:\n\n"
         prompt += f"Original Query: {session.query}\n\n"
         
-        # Include more content from responses for synthesis
-        for i, resp in enumerate(session.all_responses):
-            prompt += f"{resp['agent']} (Round {resp['round']}):\n{resp['content'][:1500]}\n\n"
+        # Use optimizer-style logic to include relevant parts of all responses
+        for resp in session.all_responses:
+            # Limit each response to ~800 tokens for synthesis
+            content = self.optimizer.truncate_to_limit(resp['content'], 800)
+            prompt += f"{resp['agent']} (Round {resp['round']}):\n{content}\n\n"
         
         prompt += "\nPlease synthesize these perspectives into a coherent final recommendation."
         return prompt
     
     def _simple_synthesis(self, session: CouncilSession) -> str:
-        """Simple synthesis without moderator"""
+        """Simple synthesis fallback"""
         synthesis = "## Council Summary\n\n"
         synthesis += f"Query: {session.query}\n\n"
-        synthesis += f"Agents consulted: {', '.join(a.name for a in session.agents)}\n\n"
         
-        # Group by round
         by_round = {}
         for resp in session.all_responses:
             round_num = resp["round"]
@@ -301,7 +362,7 @@ class CouncilCoordinator:
         for round_num, responses in sorted(by_round.items()):
             synthesis += f"### Round {round_num}\n"
             for resp in responses:
-                synthesis += f"**{resp['agent']}**: {resp['content'][:200]}...\n"
+                synthesis += f"**{resp['agent']}**: {resp['content'][:300]}...\n"
             synthesis += "\n"
         
         return synthesis

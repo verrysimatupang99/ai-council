@@ -110,17 +110,21 @@ def run_simple_mode(coordinator, query, agents, debate, rounds):
     # Print query
     console.print_query(query)
     
-    if debate:
-        # Run debate mode
-        click.echo(click.style("\n🎭 Starting debate mode...\n", fg="yellow"))
-        session = asyncio.run(coordinator.run_debate(query, rounds=rounds, agent_names=agents))
+    if debate or True: # Always use run_debate to ensure storage works
+        # Run session (even if 1 round)
+        if debate:
+            click.echo(click.style("\n🎭 Starting debate mode...\n", fg="yellow"))
+        else:
+            click.echo(click.style("\n🤖 Querying agents...\n", fg="green"))
+            
+        session = asyncio.run(coordinator.run_debate(query, rounds=rounds if debate else 1, agent_names=agents))
         
         # Print all responses
         for resp in session.all_responses:
             console.print_response(
                 type('obj', (object,), {
                     'provider_name': resp['agent'],
-                    'model': 'auto',
+                    'model': resp.get('model', 'auto'),
                     'content': resp['content'],
                     'success': True,
                     'error': None,
@@ -130,13 +134,6 @@ def run_simple_mode(coordinator, query, agents, debate, rounds):
         # Print synthesis
         if session.final_synthesis:
             console.print_synthesis(session.final_synthesis)
-    else:
-        # Single query mode
-        click.echo(click.style("\n🤖 Querying agents...\n", fg="green"))
-        responses = asyncio.run(coordinator.query_agents(query, agent_names=agents))
-        
-        for resp in responses:
-            console.print_response(resp)
 
 
 def run_tui_mode(coordinator, query, agents, debate, rounds):
@@ -148,24 +145,20 @@ def run_tui_mode(coordinator, query, agents, debate, rounds):
     agent_list = list(coordinator.agents.values())
     console.show_agents(agent_list)
     
-    # Print query
-    console.print_query(query)
-    
+    # Run session (even if 1 round to trigger storage)
     if debate:
-        # Run debate mode
         click.echo(click.style("\n🎭 Starting debate mode...\n", fg="yellow"))
-        session = asyncio.run(coordinator.run_debate(query, rounds=rounds, agent_names=agents))
-        
-        # Print synthesis
-        if session.final_synthesis:
-            console.print_synthesis(session.final_synthesis)
     else:
-        # Single query mode
-        click.echo(click.style("\n🤖 Querying agents...\n", fg="green"))
-        responses = asyncio.run(coordinator.query_agents(query, agent_names=agents))
+        click.echo(click.style("\n🚀 Initializing Rich Council Session...\n", fg="cyan"))
         
-        for resp in responses:
-            console.print_response(resp)
+    session = asyncio.run(coordinator.run_debate(
+        query=query, 
+        rounds=rounds if debate else 1, 
+        agent_names=agents
+    ))
+    
+    # Show live updating results
+    asyncio.run(console.run_live_session(session))
 
 
 @cli.command()
@@ -300,6 +293,146 @@ def test(query):
     except Exception as e:
         click.echo(click.style(f"✗ Test failed: {e}\n", fg="red"))
         sys.exit(1)
+
+
+@cli.command()
+@click.option("--limit", "-l", default=10, help="Number of sessions to show")
+def history(limit):
+    """View session history"""
+    from .core.config import Config
+    from .core.council import CouncilCoordinator
+    
+    config = Config()
+    coordinator = CouncilCoordinator(config)
+    
+    sessions = coordinator.storage.get_history(limit)
+    
+    if not sessions:
+        click.echo("No session history found.")
+        return
+    
+    click.echo("\n📜 AI Council Session History\n")
+    
+    from rich.table import Table
+    from rich.console import Console
+    
+    table = Table(title="Recent Sessions")
+    table.add_column("ID", style="cyan")
+    table.add_column("Date", style="green")
+    table.add_column("Query", style="white", overflow="fold")
+    table.add_column("Rounds", style="magenta")
+    
+    for s in sessions:
+        table.add_row(
+            s["id"],
+            s["timestamp"],
+            s["query"][:50] + "..." if len(s["query"]) > 50 else s["query"],
+            str(s["rounds"])
+        )
+    
+    Console().print(table)
+    click.echo("\nUse 'view <id>' to see details (coming soon)\n")
+
+
+@cli.command()
+@click.argument("session_id")
+def view(session_id):
+    """View details of a specific session"""
+    from .core.config import Config
+    from .core.council import CouncilCoordinator
+    
+    config = Config()
+    coordinator = CouncilCoordinator(config)
+    
+    session = coordinator.storage.get_session_details(session_id)
+    
+    if not session:
+        click.echo(f"Session {session_id} not found.")
+        return
+    
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    
+    console = Console()
+    
+    console.print(Panel(f"[bold]Query:[/] {session['query']}", title=f"Session {session_id}"))
+    
+    if session["final_synthesis"]:
+        console.print(Panel(Markdown(session["final_synthesis"]), title="Final Synthesis", border_style="green"))
+    
+    for resp in session["responses"]:
+        console.print(Panel(
+            resp["content"], 
+            title=f"Agent: {resp['agent_name']} (Round {resp['round']})",
+            subtitle=f"Model: {resp['model']} | Latency: {resp['latency_ms']:.0f}ms"
+        ))
+
+
+@cli.command()
+@click.argument("session_id")
+@click.option("--output", "-o", default=None, help="Output file path")
+def export(session_id, output):
+    """Export a session to a Markdown file"""
+    from .core.config import Config
+    from .core.council import CouncilCoordinator
+    from datetime import datetime
+    
+    config = Config()
+    coordinator = CouncilCoordinator(config)
+    
+    session = coordinator.storage.get_session_details(session_id)
+    
+    if not session:
+        click.echo(f"Session {session_id} not found.")
+        return
+    
+    # Create export directory
+    export_dir = Path("exports")
+    export_dir.mkdir(exist_ok=True)
+    
+    if not output:
+        # Generate default filename
+        safe_query = "".join([c if c.isalnum() else "_" for c in session["query"][:30]])
+        output = export_dir / f"session_{session_id}_{safe_query}.md"
+    else:
+        output = Path(output)
+    
+    # Build Markdown content
+    md = f"# AI Council Session Report\n\n"
+    md += f"**Session ID:** `{session_id}`  \n"
+    md += f"**Date:** {session['timestamp']}  \n"
+    md += f"**Rounds:** {session['rounds']}  \n\n"
+    
+    md += f"## ❓ Original Query\n\n>{session['query']}\n\n"
+    
+    if session["final_synthesis"]:
+        md += f"## 🎯 Final Recommendation\n\n{session['final_synthesis']}\n\n"
+    
+    md += "## 🎭 Agent Perspectives\n\n"
+    
+    # Group by agent
+    responses_by_agent = {}
+    for resp in session["responses"]:
+        name = resp["agent_name"]
+        if name not in responses_by_agent:
+            responses_by_agent[name] = []
+        responses_by_agent[name].append(resp)
+    
+    for agent_name, resps in responses_by_agent.items():
+        md += f"### 👤 Agent: {agent_name}\n"
+        for r in resps:
+            md += f"**Round {r['round']}** (Model: `{r['model']}`)\n\n"
+            md += f"{r['content']}\n\n"
+        md += "---\n\n"
+    
+    md += "---\n*Generated by AI Council CLI*"
+    
+    # Write to file
+    with open(output, "w") as f:
+        f.write(md)
+    
+    click.echo(click.style(f"\n✅ Session {session_id} exported to: {output}\n", fg="green", bold=True))
 
 
 if __name__ == "__main__":

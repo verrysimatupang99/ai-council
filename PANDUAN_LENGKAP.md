@@ -1,264 +1,129 @@
 # 🤖 AI Council CLI - Panduan Lengkap
 
-Sistem multi-agent AI yang memanfaatkan berbagai provider (API + CLI) untuk memberikan jawaban komprehensif melalui diskusi kolaboratif.
+Sistem multi-agent AI canggih yang menggabungkan kekuatan **Cloud API** (Penalaran Tinggi) dan **Local CLI** (Efisiensi Teknis) untuk memberikan jawaban yang telah divalidasi silang melalui diskusi kolaboratif.
 
 ## ✨ Fitur Utama
 
-- **Hybrid Architecture**: Support API-based dan CLI-based AI providers
-- **Multiple Providers**: OpenRouter, Groq, Cerebras, Gemini
-- **Role-based Agents**: Setiap AI punya spesialisasi (Architect, Critic, Optimizer, dll)
-- **Debate Mode**: Agent bisa berdiskusi dan saling merespons
-- **Rich TUI**: Interface terminal yang interaktif
-- **Parallel Execution**: Multiple AI responses digenerate bersamaan
+- **Arsitektur Hybrid**: Mendukung provider berbasis API (Groq, Gemini, OpenRouter, Cerebras) dan tool CLI lokal (Codex, Qwen, Kilo).
+- **Persistent Memory**: Semua sesi diskusi disimpan otomatis ke database **SQLite** lokal.
+- **Smart Token Optimizer**: Penghitungan token presisi menggunakan `tiktoken` dan kompresi konteks cerdas untuk menghemat biaya API.
+- **Tool Use (File Interaction)**: Agent dapat membaca dan menganalisis file di dalam proyek Anda secara langsung.
+- **Markdown Export**: Ekspor hasil diskusi menjadi laporan profesional dalam format `.md`.
+- **Rich TUI**: Antarmuka terminal interaktif dengan update real-time yang memukau.
 
-## 📦 Instalasi
+## 📦 Instalasi & Setup
 
-### 1. Setup Awal
+### 1. Setup Otomatis (Direkomendasikan)
+
+Gunakan Setup Wizard yang telah kami sediakan untuk konfigurasi instan:
 
 ```bash
+git clone https://github.com/verrysimatupang99/ai-council.git
 cd ai-council
-
-# Buat virtual environment
-python3 -m venv venv
-
-# Aktifkan venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+chmod +x setup.sh
+./setup.sh
 ```
 
-### 2. Konfigurasi API Keys
+Wizard ini akan:
+- Membuat virtual environment dan menginstal dependensi.
+- **Mendeteksi otomatis** tool AI CLI yang terpasang di sistem Anda.
+- Meminta input **API Key** secara interaktif.
+- Mengatur model terbaik berdasarkan plan Anda (**FREE** atau **PRO**).
 
-API keys sudah dipindahkan dari project `maxsignal_v2` dan siap digunakan:
+## 🎭 Daftar Agen & Spesialisasi
 
-- ✅ **OpenRouter**: `your_openrouter_api_key_here`
-- ✅ **Groq**: `your_groq_api_key_here`
-- ✅ **Cerebras**: `your_cerebras_api_key_here`
-- ✅ **Gemini**: `your_gemini_api_key_here`
+Council ini terdiri dari 9 agen dengan peran yang telah dioptimalkan:
 
-File konfigurasi sudah ada di `config.json` dan `.env`.
+| Agen | Provider | Peran Utama | Keunggulan |
+|-------|----------|-------------|------------|
+| **Architect** | Groq | Desain Arsitektur | Kecepatan kilat & struktur solid |
+| **Lead Coder** | Codex CLI | Implementasi Kode | Fokus pada sintaks & efisiensi lokal |
+| **Security Critic** | OpenRouter | Review Keamanan | Logika penalaran 120B parameter |
+| **Optimizer** | Gemini API | Optimasi Performa | Analisis context besar & efisiensi |
+| **Researcher** | Gemini CLI | Riset Teknis | Eksplorasi dokumentasi lokal |
+| **Reviewer** | Qwen CLI | Standarisasi Kode | Teliti terhadap best practices |
+| **Analyst** | Cerebras | Analisis Cepat | Inferensi instan untuk masalah spesifik |
+| **Advocate** | Kilo CLI | User Experience | Perspektif pengguna & kemudahan |
+| **Moderator** | OpenRouter | Sintesis Final | Penengah diskusi & penarik kesimpulan |
 
-### 3. Verifikasi
+## 🚀 Panduan Penggunaan
 
+### Mode 1: Tanya Jawab Standar
 ```bash
-# Test konfigurasi
-./ai-council.py test
-
-# Lihat agents yang tersedia
-./ai-council.py agents
+./ai-council.py ask -q "Bagaimana cara mengamankan API di Node.js?"
 ```
 
-## 🎭 Agent Roles
-
-| Agent | Provider | Role | Temperature |
-|-------|----------|------|-------------|
-| **Architect** | Groq | System design, arsitektur, best practices | 0.7 |
-| **Critic** | OpenRouter | Code review, identifikasi masalah, edge cases | 0.5 |
-| **Optimizer** | Gemini | Performance, efisiensi, optimisasi | 0.6 |
-| **Researcher** | Cerebras | Deep technical insights, perbandingan alternatif | 0.7 |
-| **Generalist** | OpenRouter | Advice praktis, balanced perspective | 0.8 |
-| **Moderator** | OpenRouter | Sintesis final, rekomendasi kesimpulan | 0.5 |
-
-## 🚀 Cara Penggunaan
-
-### Mode 1: Single Query (Tanpa Debate)
-
+### Mode 2: Mode Debat (Multi-Ronde)
+Sangat direkomendasikan untuk masalah kompleks agar agen bisa saling mengoreksi.
 ```bash
-# Interactive
-./ai-council.py ask
-
-# Direct query
-./ai-council.py ask -q "Best architecture untuk microservices?"
-
-# Dengan agents spesifik
-./ai-council.py ask -q "Review code ini" -a architect -a critic
+./ai-council.py ask -q "Microservices vs Monolith untuk startup?" --debate --rounds 2
 ```
 
-### Mode 2: Debate Mode (Multiple Rounds)
-
+### Mode 3: Analisis Kode Lokal (Tool Use)
+Anda bisa meminta agen untuk memeriksa file yang ada di folder proyek.
 ```bash
-# Debate dengan 2 rounds
-./ai-council.py ask -q "Rust vs Go untuk backend?" --debate --rounds 2
-
-# Debate dengan 3 rounds + agents spesifik
-./ai-council.py ask -q "SQL vs NoSQL?" --debate -r 3 -a architect -a researcher -a optimizer
+./ai-council.py ask -q "Review file setup.sh dan cari potensi bug" --debate
 ```
+*Catatan: Agen akan menggunakan perintah `[READ_FILE: setup.sh]` secara otomatis.*
 
-### Mode 3: Simple CLI (Tanpa TUI)
-
+### Mode 4: Tanpa UI (Simple Mode)
+Cocok untuk scripting atau output teks mentah.
 ```bash
-./ai-council.py ask -q "Hello" --simple
+./ai-council.py ask -q "Halo" --simple
 ```
 
-## 📋 Contoh Use Cases
+## 📜 Manajemen Riwayat (History)
 
-### 1. Code Review
+Semua diskusi Anda tidak akan hilang:
 
-```bash
-./ai-council.py ask -q "
-Review code Python berikut:
-
-def fetch_data(url):
-    import requests
-    response = requests.get(url)
-    return response.json()
-" --debate
-```
-
-### 2. Architecture Decision
-
-```bash
-./ai-council.py ask -q "
-Saya ingin build real-time chat application dengan:
-- 10,000 concurrent users
-- Low latency requirement
-- Budget terbatas
-
-Tech stack apa yang recommended?
-" --debate -r 2
-```
-
-### 3. Learning & Research
-
-```bash
-./ai-council.py ask -q "
-Jelaskan perbedaan antara:
-- REST API
-- GraphQL
-- gRPC
-
-Kapan menggunakan masing-masing?
-" -a researcher -a generalist
-```
+1.  **Lihat daftar riwayat**:
+    ```bash
+    ./ai-council.py history
+    ```
+2.  **Lihat detail sesi tertentu**:
+    ```bash
+    ./ai-council.py view <SESSION_ID>
+    ```
+3.  **Ekspor ke Markdown**:
+    ```bash
+    ./ai-council.py export <SESSION_ID>
+    ```
+    *File akan tersimpan di folder `exports/`.*
 
 ## 🔧 Konfigurasi Lanjutan
 
-### Edit Config
+### File `config.json`
+Anda dapat menyesuaikan `temperature`, `model`, dan agen default secara manual di file ini.
 
-File: `config.json`
-
-```json
-{
-  "api_providers": {
-    "groq": {
-      "enabled": true,
-      "api_key": "your_key",
-      "model": "llama-3.3-70b-versatile"
-    }
-  },
-  "council_settings": {
-    "default_agents": ["architect", "critic", "optimizer"],
-    "max_debate_rounds": 2,
-    "timeout_seconds": 60
-  }
-}
+### Environment Variables (`.env`)
+Jika lebih suka menggunakan environment variables, isi API Key di file `.env`:
+```env
+OPENROUTER_API_KEY=xxx
+GROQ_API_KEY=xxx
+CEREBRAS_API_KEY=xxx
+GEMINI_API_KEY=xxx
 ```
 
-### Enable CLI Providers
-
-Jika kamu ingin menggunakan CLI tools yang sudah terinstall:
-
-```json
-{
-  "cli_providers": {
-    "gemini_cli": {
-      "enabled": true,
-      "command": "gemini"
-    },
-    "qwen_cli": {
-      "enabled": true,
-      "command": "qwen"
-    }
-  }
-}
-```
-
-## 🐛 Troubleshooting
-
-### Error: "No providers configured"
-
-```bash
-# Check config file
-cat config.json
-
-# Check .env file
-cat .env
-
-# Verify dengan test
-./ai-council.py test
-```
-
-### Error: "API key not configured"
-
-Pastikan API keys sudah di-set di `config.json` atau `.env`:
-
-```bash
-export OPENROUTER_API_KEY=sk-or-v1-xxx
-export GROQ_API_KEY=gsk_xxx
-export GEMINI_API_KEY=AIzaSyxxx
-```
-
-### Error: "Command not found" (CLI providers)
-
-Install CLI tools terlebih dahulu:
-
-```bash
-# Gemini CLI
-npm install -g @google/gemini-cli
-
-# Codex CLI
-npm install -g @openai/codex
-
-# Qwen CLI
-# Check https://github.com/QwenLM/Qwen
-
-# Kilo CLI
-# Check documentation
-```
-
-## 📊 Struktur Project
+## 📊 Struktur Proyek
 
 ```
 ai-council/
 ├── ai_council/
-│   ├── __init__.py
-│   ├── cli.py              # Main CLI entry point
 │   ├── core/
-│   │   ├── config.py       # Configuration manager
-│   │   └── council.py      # Council coordinator
-│   ├── providers/
-│   │   ├── base.py         # Base provider interface
-│   │   ├── api_providers.py    # API providers
-│   │   └── cli_providers.py    # CLI providers
-│   └── ui/
-│       └── tui.py          # Rich TUI interface
-├── ai-council.py           # Executable script
-├── config.json             # Main configuration
-├── .env                    # Environment variables
-├── requirements.txt
-├── setup.sh
-└── README.md
+│   │   ├── storage.py      # Database SQLite (Persistence)
+│   │   ├── optimizer.py    # Token Manager (Tiktoken)
+│   │   ├── tools.py        # File Interaction (Capabilities)
+│   │   └── council.py      # Brain of the Council
+│   ├── providers/          # API & CLI Implementation
+│   └── ui/                 # Rich TUI Interface
+├── exports/                # Hasil ekspor Markdown
+├── setup.sh                # Setup Wizard
+└── ai-council.py           # Entry Point Utama
 ```
-
-## 🎯 Tips & Best Practices
-
-1. **Gunakan Debate Mode** untuk pertanyaan kompleks yang butuh multiple perspectives
-2. **Pilih Agents** sesuai kebutuhan:
-   - Coding problems → architect, critic, optimizer
-   - Research → researcher, generalist
-   - Decision making → semua agents + moderator
-3. **Parallel Execution** otomatis aktif untuk response lebih cepat
-4. **Temperature Settings** bisa disesuaikan di `config.json`
 
 ## 📝 License
 
-MIT License - Feel free to use and modify!
+MIT License - Dibuat dengan ❤️ untuk solusi masalah melalui kolaborasi AI.
 
-## 🙏 Credits
-
-API Keys migrated from:
-- `maxsignal_v2` project
-- `civ6-ai-agent` project
-
-Created with ❤️ for collaborative AI problem-solving
+---
+*Dokumentasi ini diperbarui secara otomatis pada Maret 2026.*
