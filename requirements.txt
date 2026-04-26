@@ -8,6 +8,7 @@ asyncio>=3.4.3
 tiktoken>=0.5.0
 fastapi>=0.100.0
 uvicorn>=0.22.0
+duckduckgo-search>=2.9.0
 
 # API providers
 openai>=1.0.0        # OpenRouter, Groq compatibility
